@@ -1,0 +1,13 @@
+"""Multi-Agent Foundation — Planner, Executor, Critic.
+
+Phase 3: agents coordinate only through the Kernel Scheduler
+(kernel.submit_task) and the Event Bus — never through direct references
+to each other. The Kernel remains the only orchestration point.
+"""
+
+from src.runtime.agents.critic import CriticAgent
+from src.runtime.agents.executor import ExecutorAgent
+from src.runtime.agents.models import Plan, PlanStep
+from src.runtime.agents.planner import PlannerAgent
+
+__all__ = ["PlannerAgent", "ExecutorAgent", "CriticAgent", "Plan", "PlanStep"]
