@@ -1,0 +1,140 @@
+# ==========================================
+
+# GENESIS OS
+
+# Python
+
+# ==========================================
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution
+
+build/
+dist/
+*.egg-info/
+
+# Logs
+
+logs/
+*.log
+
+# Runtime
+
+*.pid
+*.seed
+
+# Coverage
+
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Type Checking
+
+.mypy_cache/
+.pyre/
+.ruff_cache/
+
+# IDE
+
+.vscode/
+.idea/
+
+# OS Files
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment
+
+.env
+.env.*
+
+# SQLite
+
+*.sqlite3
+*.db
+
+# Temporary Files
+
+*.tmp
+*.temp
+
+# Cache
+
+.cache/
+
+# Python Packaging
+
+pip-wheel-metadata/
+
+# Jupyter
+
+.ipynb_checkpoints/
+
+# Test Output
+
+coverage.xml
+
+# Generated Files
+
+generated/
+
+# Local Configuration
+
+local_settings.py
+
+# Secrets
+
+secrets/
+keys/
+*.pem
+*.key
+*.crt
+
+# Docker
+
+docker-compose.override.yml
+
+# Terraform
+
+.terraform/
+
+# Node (for future UI)
+
+node_modules/
+
+# Build Artifacts
+
+out/
+release/
+
+# Backup
+
+*.bak
+*.old
+
+# Misc
+
+*.swp
+*.swo
+
+# ==========================================
+
+# END
+
+# ==========================================
+-e 
+.env
+genesis.db

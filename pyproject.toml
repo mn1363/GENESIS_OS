@@ -1,0 +1,45 @@
+[project]
+name = "genesis-os"
+version = "0.1.0"
+description = "GENESIS OS — modular AI agent runtime with a sealed core and polyglot plugin system."
+requires-python = ">=3.13"
+readme = "README.md"
+license = { text = "See LICENSE" }
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+# --- Formatting & linting (ruff covers both, per CODING_STANDARDS.md file-size/style rules) ---
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# --- Type checking ---
+[tool.mypy]
+python_version = "3.13"
+strict = true
+exclude = ["docs/", "ai_workspace/"]
+
+# --- Testing ---
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--cov=src --cov-report=term-missing"
