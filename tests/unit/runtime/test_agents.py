@@ -10,6 +10,8 @@ from src.core.events import Event, EventBus
 from src.runtime.agents.critic import CriticAgent
 from src.runtime.agents.executor import ExecutorAgent
 from src.runtime.agents.planner import PlannerAgent
+from src.runtime.execution.engine import ExecutionEngine
+from src.runtime.execution.models import ExecutionRequest
 
 pytestmark = pytest.mark.asyncio
 
@@ -27,6 +29,53 @@ async def test_executor_publishes_completion_event() -> None:
     result = await executor.execute({"plan_id": "p1", "step_id": "s1", "description": "do X"})
     assert result["status"] == "executed"
     assert received == [result]
+
+
+async def test_executor_uses_default_local_echo_engine() -> None:
+    """No `engine` passed -> ExecutorAgent(event_bus) still works, and its
+    output actually comes from a real ExecutionEngine now, not an inline
+    f-string stub."""
+    executor = ExecutorAgent(EventBus())
+    result = await executor.execute({"plan_id": "p1", "step_id": "s1", "description": "do X"})
+    assert result["output"] == "executed: do X"
+
+
+async def test_executor_accepts_injected_execution_engine() -> None:
+    class _StaticProvider:
+        provider_id = "static"
+
+        async def health_check(self) -> bool:
+            return True
+
+        async def run(self, request: ExecutionRequest) -> str:
+            return "custom provider output"
+
+    engine = ExecutionEngine([_StaticProvider()])
+    executor = ExecutorAgent(EventBus(), engine=engine)
+
+    result = await executor.execute({"plan_id": "p1", "step_id": "s1", "description": "do X"})
+
+    assert result["output"] == "custom provider output"
+    assert result["status"] == "executed"
+
+
+async def test_executor_reports_failed_status_when_engine_fails() -> None:
+    class _AlwaysFailsProvider:
+        provider_id = "always-fails"
+
+        async def health_check(self) -> bool:
+            return False
+
+        async def run(self, request: ExecutionRequest) -> str:
+            raise RuntimeError("boom")
+
+    engine = ExecutionEngine([_AlwaysFailsProvider()], max_retries_per_provider=0)
+    executor = ExecutorAgent(EventBus(), engine=engine)
+
+    result = await executor.execute({"plan_id": "p1", "step_id": "s1", "description": "do X"})
+
+    assert result["status"] == "failed"
+    assert result["output"] is None
 
 
 async def test_critic_reacts_to_execution_completed_event() -> None:
