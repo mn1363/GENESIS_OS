@@ -1,0 +1,47 @@
+diff a/src/storage/task_repository.py b/src/storage/task_repository.py	(rejected hunks)
+@@ -1,24 +1,32 @@
+-from typing import List, Optional
+-from .base import BaseRepository
++"""In-memory task storage (Phase 4 baseline).
+ 
++Unchanged contract from the Phase 4 scaffold — see `sql_repository.py` for
++the durable SQLite/PostgreSQL-backed alternative added in Phase 4.2, which
++implements the same `BaseRepository[dict[str, Any]]` contract.
++"""
+ 
+-class TaskRepository(BaseRepository[dict]):
+-    """
+-    Simple in-memory task storage (Phase 4 scaffold).
+-    """
++from __future__ import annotations
+ 
+-    def __init__(self):
+-        self._store = {}
++from typing import Any
+ 
+-    async def create(self, item: dict) -> dict:
++from src.storage.base import BaseRepository
++
++
++class TaskRepository(BaseRepository[dict[str, Any]]):
++    """Simple in-memory task storage (Phase 4 scaffold)."""
++
++    def __init__(self) -> None:
++        self._store: dict[str, dict[str, Any]] = {}
++
++    async def create(self, item: dict[str, Any]) -> dict[str, Any]:
+         self._store[item["id"]] = item
+         return item
+ 
+-    async def get(self, item_id: str) -> Optional[dict]:
++    async def get(self, item_id: str) -> dict[str, Any] | None:
+         return self._store.get(item_id)
+ 
+-    async def list(self) -> List[dict]:
++    async def list(self) -> list[dict[str, Any]]:
+         return list(self._store.values())
+ 
+     async def delete(self, item_id: str) -> bool:
+-        return self._store.pop(item_id, None) is not None
+\ No newline at end of file
++        return self._store.pop(item_id, None) is not None

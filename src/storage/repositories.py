@@ -1,17 +1,20 @@
-from dataclasses import dataclass
-from typing import Dict, Type, Any
+"""Central registry for all storage repositories.
+
+Unchanged contract from the Phase 4 scaffold: a plain name -> repository
+lookup, populated by `di_wire.wire_storage()`.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
 class RepositoryRegistry:
-    """
-    Central registry for all storage repositories.
-    """
+    """Central registry for all storage repositories."""
 
-    _repos: Dict[str, Any]
-
-    def __init__(self):
-        self._repos = {}
+    _repos: dict[str, Any] = field(default_factory=dict)
 
     def register(self, name: str, repo: Any) -> None:
         self._repos[name] = repo

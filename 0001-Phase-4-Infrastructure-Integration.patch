@@ -1,0 +1,151 @@
+From 0b88d5af6366f04ea632386c9357606a10df640d Mon Sep 17 00:00:00 2001
+From: GENESIS_OS Contributor <genesis-os-bot@users.noreply.github.com>
+Date: Sat, 4 Jul 2026 13:01:15 +0000
+Subject: [PATCH] Phase 4 - Infrastructure Integration
+
+---
+ .../Phase_4_Implementation_Report.md          | 41 +++++++++------
+ tests/unit/storage/test_base.py               | 52 +++++++++++++++++++
+ 2 files changed, 77 insertions(+), 16 deletions(-)
+ create mode 100644 tests/unit/storage/test_base.py
+
+diff --git a/ai_workspace/implementation_reports/Phase_4_Implementation_Report.md b/ai_workspace/implementation_reports/Phase_4_Implementation_Report.md
+index 2fa897b..5ba0947 100644
+--- a/ai_workspace/implementation_reports/Phase_4_Implementation_Report.md
++++ b/ai_workspace/implementation_reports/Phase_4_Implementation_Report.md
+@@ -1,4 +1,4 @@
+-# Phase 4.2 — Storage Layer Extension Implementation Report
++# Phase 4 — Infrastructure Integration Implementation Report
+ 
+ **Scope:** Continuation of Phase 4 (Storage Layer) on top of commit `9955151`
+ ("Phase 4 - Storage Layer full implementation"). Per the task instructions,
+@@ -150,6 +150,13 @@ correct.
+   `container.build()`, shared-instance caching, schema init through the
+   container, and the regression guard for the original three registry
+   entries.
++- `test_base.py` (5 tests) — added to close `base.py`'s coverage gap: the
++  abstract contract cannot be instantiated directly, and each method's
++  trivial `raise NotImplementedError` body is exercised via a minimal
++  concrete subclass's `super()` call, bringing `src/storage/base.py` to
++  100% (`mypy --strict`'s `safe-super` warning on those deliberate calls is
++  suppressed per-line, since the intent is exactly to invoke the abstract
++  body).
+ 
+ ## Testing strategy — no live Redis/Qdrant server available
+ 
+@@ -176,29 +183,31 @@ production parity.
+ 
+ ```
+ ruff check .          — All checks passed
+-ruff format --check . — 67 files already formatted
++ruff format --check . — 68 files already formatted
+ mypy --strict src     — Success: no issues found in 45 source files
+-pytest                — 94 passed
++pytest --cov=src      — 99 passed
+ ```
+ 
+ ```
+ Name                        Stmts   Miss  Cover
+ ----------------------------------------------
+-src/storage/base.py            15      4    73%   (abstract method bodies, unreachable by design)
+-src/storage/database.py        40      0   100%
+-src/storage/di_wire.py         65      0   100%
+-src/storage/event_repository.py 17     0   100%
+-src/storage/memory_repository.py 17    0   100%
+-src/storage/models.py          10      0   100%
+-src/storage/redis_client.py    37      0   100%
+-src/storage/repositories.py    12      0   100%
+-src/storage/sql_repository.py  32      0   100%
+-src/storage/task_repository.py 15      0   100%
+-src/storage/vector_store.py    32      0   100%
++src/storage/base.py             15      0   100%
++src/storage/database.py         40      0   100%
++src/storage/di_wire.py          65      0   100%
++src/storage/event_repository.py 17      0   100%
++src/storage/memory_repository.py 17     0   100%
++src/storage/models.py           10      0   100%
++src/storage/redis_client.py     37      0   100%
++src/storage/repositories.py     12      0   100%
++src/storage/sql_repository.py   32      0   100%
++src/storage/task_repository.py  15      0   100%
++src/storage/vector_store.py     32      0   100%
+ ----------------------------------------------
+-TOTAL (whole project)        1163     72    94%
++TOTAL (whole project)         1163     68    94%
+ ```
+ 
++Every file under `src/storage/` is at 100% line coverage.
++
+ `mypy --strict` was also run against `tests/unit/storage/` in isolation
+ (7 files, success) — the pre-existing `mypy --strict tests/unit/core`
+ failures noted in the previous storage-layer session are unrelated Phase 3
+@@ -255,7 +264,7 @@ test files, untouched here, and remain out of this session's scope.
+ 
+ ```
+ git add .
+-git commit -m "Phase 4.2 - SQLAlchemy/SQLite/PostgreSQL, Redis, Qdrant storage backends and DI wiring"
++git commit -m "Phase 4 - Infrastructure Integration"
+ ```
+ 
+ ## Status
+diff --git a/tests/unit/storage/test_base.py b/tests/unit/storage/test_base.py
+new file mode 100644
+index 0000000..188bdc1
+--- /dev/null
++++ b/tests/unit/storage/test_base.py
+@@ -0,0 +1,52 @@
++"""Unit tests for src/storage/base.py.
++
++Exercises the abstract method bodies directly (via a minimal concrete
++subclass calling `super()`) so the contract's own `NotImplementedError`
++raises are covered, not just its concrete implementers.
++"""
++
++from __future__ import annotations
++
++from typing import Any
++
++import pytest
++from src.storage.base import BaseRepository
++
++
++class _StubRepository(BaseRepository[dict[str, Any]]):
++    async def create(self, item: dict[str, Any]) -> dict[str, Any]:
++        return await super().create(item)  # type: ignore[safe-super]
++
++    async def get(self, item_id: str) -> dict[str, Any] | None:
++        return await super().get(item_id)  # type: ignore[safe-super]
++
++    async def list(self) -> list[dict[str, Any]]:
++        return await super().list()  # type: ignore[safe-super]
++
++    async def delete(self, item_id: str) -> bool:
++        return await super().delete(item_id)  # type: ignore[safe-super]
++
++
++def test_base_repository_cannot_be_instantiated_directly() -> None:
++    with pytest.raises(TypeError):
++        BaseRepository()  # type: ignore[abstract]
++
++
++async def test_create_body_raises_not_implemented() -> None:
++    with pytest.raises(NotImplementedError):
++        await _StubRepository().create({"id": "x"})
++
++
++async def test_get_body_raises_not_implemented() -> None:
++    with pytest.raises(NotImplementedError):
++        await _StubRepository().get("x")
++
++
++async def test_list_body_raises_not_implemented() -> None:
++    with pytest.raises(NotImplementedError):
++        await _StubRepository().list()
++
++
++async def test_delete_body_raises_not_implemented() -> None:
++    with pytest.raises(NotImplementedError):
++        await _StubRepository().delete("x")
+-- 
+2.43.0
+
