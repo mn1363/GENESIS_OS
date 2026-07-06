@@ -22,6 +22,7 @@ from src.storage.di_wire import (
     wire_storage,
 )
 from src.storage.event_repository import EventRepository
+from src.storage.knowledge_graph import SQLAlchemyKnowledgeGraph
 from src.storage.memory_repository import MemoryRepository
 from src.storage.redis_client import RedisRepository, RedisShortTermMemory
 from src.storage.repositories import RepositoryRegistry
@@ -48,6 +49,7 @@ def test_wire_storage_returns_a_populated_registry() -> None:
     assert isinstance(registry.get("redis_cache"), RedisRepository)
     assert isinstance(registry.get("short_term_memory"), RedisShortTermMemory)
     assert isinstance(registry.get("vector_memory"), QdrantVectorMemory)
+    assert isinstance(registry.get("knowledge_graph"), SQLAlchemyKnowledgeGraph)
 
 
 def test_wire_storage_is_built_through_the_container() -> None:
@@ -69,6 +71,7 @@ def test_wire_storage_shares_one_session_manager() -> None:
     session_manager = container.get_built(DB_SESSION_MANAGER)
     assert registry.get("sql_tasks")._sessions is session_manager  # noqa: SLF001
     assert registry.get("sql_events")._sessions is session_manager  # noqa: SLF001
+    assert registry.get("knowledge_graph")._sessions is session_manager  # noqa: SLF001
 
 
 async def test_init_storage_schema_creates_tables_and_repository_works() -> None:

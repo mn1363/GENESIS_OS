@@ -21,6 +21,7 @@ from src.config.settings import Settings, get_settings
 from src.core.di import DIContainer
 from src.storage.database import DatabaseSessionManager
 from src.storage.event_repository import EventRepository
+from src.storage.knowledge_graph import SQLAlchemyKnowledgeGraph
 from src.storage.memory_repository import MemoryRepository
 from src.storage.redis_client import RedisRepository, RedisShortTermMemory
 from src.storage.repositories import RepositoryRegistry
@@ -36,6 +37,7 @@ SQL_EVENT_REPOSITORY = "sql_event_repository"
 REDIS_CACHE_REPOSITORY = "redis_cache_repository"
 SHORT_TERM_MEMORY = "short_term_memory"
 VECTOR_MEMORY = "vector_memory"
+KNOWLEDGE_GRAPH = "knowledge_graph"
 REPOSITORY_REGISTRY = "repository_registry"
 
 
@@ -93,6 +95,11 @@ def _register_factories(container: DIContainer, settings: Settings) -> None:
         dependencies=[QDRANT_CLIENT],
     )
     container.register_factory(
+        KNOWLEDGE_GRAPH,
+        lambda db_session_manager: SQLAlchemyKnowledgeGraph(db_session_manager),
+        dependencies=[DB_SESSION_MANAGER],
+    )
+    container.register_factory(
         REPOSITORY_REGISTRY,
         _build_registry,
         dependencies=[
@@ -101,6 +108,7 @@ def _register_factories(container: DIContainer, settings: Settings) -> None:
             REDIS_CACHE_REPOSITORY,
             SHORT_TERM_MEMORY,
             VECTOR_MEMORY,
+            KNOWLEDGE_GRAPH,
         ],
     )
 
@@ -111,9 +119,10 @@ def _build_registry(
     redis_cache_repository: RedisRepository,
     short_term_memory: RedisShortTermMemory,
     vector_memory: QdrantVectorMemory,
+    knowledge_graph: SQLAlchemyKnowledgeGraph,
 ) -> RepositoryRegistry:
     """Assemble the `RepositoryRegistry`: original in-memory entries plus
-    the Phase 4.2 durable/production backends under new names."""
+    the Phase 4.2+ durable/production backends under new names."""
     registry = RepositoryRegistry()
     registry.register("tasks", TaskRepository())
     registry.register("events", EventRepository())
@@ -123,6 +132,7 @@ def _build_registry(
     registry.register("redis_cache", redis_cache_repository)
     registry.register("short_term_memory", short_term_memory)
     registry.register("vector_memory", vector_memory)
+    registry.register("knowledge_graph", knowledge_graph)
     return registry
 
 

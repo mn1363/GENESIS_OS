@@ -13,4 +13,10 @@ Phase 4.2 additions:
     sql_repository.py     -- SQLAlchemyRepository: SQLite/PostgreSQL adapter
     redis_client.py        -- RedisRepository + RedisShortTermMemory
     vector_store.py        -- QdrantVectorMemory
+
+Phase 6 Milestone 6 addition:
+    knowledge_graph.py     -- SQLAlchemyKnowledgeGraph: production
+                               src.services.memory.interfaces.KnowledgeGraph,
+                               backed by the GraphNodeRecord/GraphEdgeRecord
+                               tables in models.py
 """
