@@ -59,6 +59,21 @@ class Settings(BaseSettings):
     boot_health_check_timeout_seconds: float = 10.0
     shutdown_grace_period_seconds: float = 15.0
 
+    @property
+    def database_backend(self) -> str:
+        """The backend implied by `database_url` (e.g. `"sqlite"`,
+        `"postgresql"`) — the scheme before any `+driver` suffix.
+
+        GEN-0025: purely a read-only, computed convenience for
+        logging/diagnostics and explicit backend selection at the call
+        site (e.g. `if settings.database_backend == "sqlite": ...`).
+        Adds no new field, changes no serialization, and doesn't affect
+        how `DatabaseSessionManager` resolves the dialect — that still
+        reads the full `database_url` directly, unchanged.
+        """
+        scheme = self.database_url.split("://", 1)[0]
+        return scheme.split("+", 1)[0]
+
 
 @lru_cache
 def get_settings() -> Settings:

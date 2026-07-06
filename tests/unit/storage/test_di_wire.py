@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.abc
+import importlib.machinery
+import sys
+
 import pytest
 from qdrant_client import AsyncQdrantClient
 from redis.asyncio import Redis
@@ -98,3 +102,33 @@ def test_original_in_memory_repositories_are_unaffected(key: str) -> None:
     assert hasattr(repo, "get")
     assert hasattr(repo, "list")
     assert hasattr(repo, "delete")
+
+
+def test_wire_storage_succeeds_even_when_sql_driver_is_unimportable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GEN-0025: wire_storage() must not require aiosqlite/asyncpg to be
+    importable just to wire the container — in-memory repositories work
+    independently of whether the SQL backend's driver is even installed.
+    The driver is only required once a SQL repository is actually used
+    (covered by test_database.py's own driver-blocking regression test).
+    """
+
+    class _Blocker(importlib.abc.MetaPathFinder):
+        def find_spec(
+            self, name: str, path: object, target: object = None
+        ) -> importlib.machinery.ModuleSpec | None:
+            if name == "aiosqlite" or name.startswith("aiosqlite."):
+                raise ModuleNotFoundError(f"simulated: {name} not installed")
+            return None
+
+    for name in list(sys.modules):
+        if name.startswith("aiosqlite"):
+            monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setattr(sys, "meta_path", [_Blocker(), *sys.meta_path])
+
+    container = DIContainer()
+    registry = wire_storage(container, settings=_in_memory_settings())  # must not raise
+
+    assert isinstance(registry.get("tasks"), TaskRepository)
+    assert isinstance(registry.get("sql_tasks"), SQLAlchemyRepository)
