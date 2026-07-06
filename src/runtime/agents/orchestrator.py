@@ -14,19 +14,22 @@ task dispatch on top of existing public interfaces only:
 - `ExecutionEngine.execute()` (`src/runtime/execution/engine.py`, Phase 5)
   for direct, ad-hoc execution outside the Scheduler's task lifecycle
   (health probes, synchronous-style calls) — optional, injected.
+- `AgentCommunicationBus` (Phase 6 Milestone 3, `communication.py`) for
+  sending a message to a specific agent (`send_command`) — optional,
+  injected; nothing about Milestones 1/2 changes if it's omitted.
 
 `src/core/` is not modified and is not imported for anything beyond these
 existing public methods/classes. Per GEN-0007's "Agent Communication:
 Allowed: Agent -> Kernel -> Agent. Forbidden: Agent -> Agent" — this class
 never gives one agent a reference to another; it only ever calls each
 agent's own `Service` lifecycle methods and routes work through the
-Scheduler/ExecutionEngine.
+Scheduler/ExecutionEngine/CommunicationBus.
 
 Constructed entirely via Dependency Injection: every collaborator
 (`AgentRegistry`, `EventBus`, `KernelScheduler`, `TaskStateStore`,
-optionally `ExecutionEngine`) is a constructor argument. Fully async;
-the only sleep is inside the cancellable background health-monitoring
-loop, which never blocks a caller.
+optionally `ExecutionEngine` and `AgentCommunicationBus`) is a constructor
+argument. Fully async; the only sleep is inside the cancellable background
+health-monitoring loop, which never blocks a caller.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+import uuid
 from typing import Any, Protocol, runtime_checkable
 
 from src.core.events import Event, EventBus
@@ -41,6 +45,7 @@ from src.core.lifecycle import Service
 from src.core.logging import get_logger
 from src.core.scheduler import KernelScheduler
 from src.core.tasks import Task, TaskStateStore
+from src.runtime.agents.communication import AgentCommunicationBus, AgentMessage, AgentMessageType
 from src.runtime.agents.registry import (
     AgentAvailability,
     AgentEntry,
@@ -61,6 +66,10 @@ class NoAgentAvailableError(RuntimeError):
 
 class NoExecutionEngineError(RuntimeError):
     """Raised by `execute_directly` when no `ExecutionEngine` was injected."""
+
+
+class NoCommunicationBusError(RuntimeError):
+    """Raised by `send_command` when no `AgentCommunicationBus` was injected."""
 
 
 @runtime_checkable
@@ -91,6 +100,13 @@ class Orchestrator(Protocol):
         self, capability: str, payload: dict[str, Any] | None = None, priority: int = 0
     ) -> Task: ...
 
+    async def send_command(
+        self,
+        agent_id: str,
+        payload: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
+    ) -> AgentMessage: ...
+
 
 class AgentOrchestrator:
     """Concrete `Orchestrator`, composed from injected collaborators only."""
@@ -102,6 +118,7 @@ class AgentOrchestrator:
         scheduler: KernelScheduler,
         task_store: TaskStateStore,
         execution_engine: ExecutionEngine | None = None,
+        communication_bus: AgentCommunicationBus | None = None,
         health_check_interval_seconds: float = DEFAULT_HEALTH_CHECK_INTERVAL_SECONDS,
     ) -> None:
         self._registry = registry
@@ -109,6 +126,7 @@ class AgentOrchestrator:
         self._scheduler = scheduler
         self._tasks = task_store
         self._execution_engine = execution_engine
+        self._communication_bus = communication_bus
         self._health_check_interval_seconds = health_check_interval_seconds
         self._monitor_task: asyncio.Task[None] | None = None
 
@@ -267,6 +285,41 @@ class AgentOrchestrator:
             {"capability": capability, "status": response.status.value},
         )
         return response
+
+    # ---- Agent-directed messaging (via the Communication Bus) -----------------------
+
+    async def send_command(
+        self,
+        agent_id: str,
+        payload: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
+    ) -> AgentMessage:
+        """Send a `COMMAND` message to one specific agent through the
+        injected `AgentCommunicationBus` — the Orchestrator's own required
+        use of the Communication Layer (Phase 6 Milestone 3). Raises
+        `NoCommunicationBusError` if none was injected, or
+        `AgentNotFoundError` if `agent_id` isn't registered.
+
+        The Orchestrator is still not a broker here: it builds one
+        `AgentMessage` and hands it to `AgentCommunicationBus.publish()`,
+        which is the only thing that actually delivers it (via `EventBus`).
+        """
+        if self._communication_bus is None:
+            raise NoCommunicationBusError(
+                "AgentOrchestrator has no AgentCommunicationBus configured"
+            )
+        self._require(agent_id)
+        resolved_correlation_id = correlation_id or str(uuid.uuid4())
+        message = AgentMessage(
+            sender_id="orchestrator",
+            receiver_id=agent_id,
+            message_type=AgentMessageType.COMMAND,
+            payload=payload or {},
+            correlation_id=resolved_correlation_id,
+        )
+        await self._communication_bus.publish(message)
+        logger.info("agent_command_sent", agent_id=agent_id, message_id=message.id)
+        return message
 
     # ---- Execution history feedback (via EventBus only) ----------------------------
 

@@ -6,12 +6,20 @@ Phase 3: agents coordinate only through the Kernel Scheduler
 to each other. The Kernel remains the only orchestration point.
 """
 
+from src.runtime.agents.communication import (
+    AgentAlreadySubscribedError,
+    AgentCommunicationBus,
+    AgentMessage,
+    AgentMessageType,
+    DeadLetter,
+)
 from src.runtime.agents.critic import CriticAgent
 from src.runtime.agents.executor import ExecutorAgent
 from src.runtime.agents.models import Plan, PlanStep
 from src.runtime.agents.orchestrator import (
     AgentOrchestrator,
     NoAgentAvailableError,
+    NoCommunicationBusError,
     NoExecutionEngineError,
     Orchestrator,
 )
@@ -41,4 +49,10 @@ __all__ = [
     "Orchestrator",
     "NoAgentAvailableError",
     "NoExecutionEngineError",
+    "NoCommunicationBusError",
+    "AgentCommunicationBus",
+    "AgentMessage",
+    "AgentMessageType",
+    "DeadLetter",
+    "AgentAlreadySubscribedError",
 ]

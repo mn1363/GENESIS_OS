@@ -9,9 +9,11 @@ import pytest
 from src.core.events import Event, EventBus
 from src.core.scheduler import KernelScheduler
 from src.core.tasks import TaskStateStore
+from src.runtime.agents.communication import AgentCommunicationBus, AgentMessage, AgentMessageType
 from src.runtime.agents.orchestrator import (
     AgentOrchestrator,
     NoAgentAvailableError,
+    NoCommunicationBusError,
     NoExecutionEngineError,
     Orchestrator,
 )
@@ -53,6 +55,7 @@ async def _failing_dispatch(capability: str, payload: dict[str, Any]) -> Any:
 def _make_orchestrator(
     dispatch_fn: Any = _echo_dispatch,
     execution_engine: ExecutionEngine | None = None,
+    communication_bus: AgentCommunicationBus | None = None,
     health_check_interval_seconds: float = 30.0,
 ) -> tuple[AgentOrchestrator, AgentRegistry, EventBus, KernelScheduler, TaskStateStore]:
     registry = AgentRegistry()
@@ -65,6 +68,7 @@ def _make_orchestrator(
         scheduler,
         task_store,
         execution_engine=execution_engine,
+        communication_bus=communication_bus,
         health_check_interval_seconds=health_check_interval_seconds,
     )
     return orchestrator, registry, event_bus, scheduler, task_store
@@ -378,3 +382,58 @@ async def test_execute_directly_builds_execution_request_with_given_context() ->
 
     assert captured[0].capability == "agent.execute@v1"
     assert captured[0].context == {"description": "do X"}
+
+
+# ---- send_command (Communication Bus integration) --------------------------------
+
+
+async def test_send_command_without_communication_bus_raises() -> None:
+    orchestrator, *_ = _make_orchestrator()
+    await orchestrator.register_agent("planner", "1.0.0", ("agent.plan@v1",), _FakeAgent())
+    await orchestrator.start_agent("planner")
+
+    with pytest.raises(NoCommunicationBusError):
+        await orchestrator.send_command("planner", {"do": "x"})
+
+
+async def test_send_command_unknown_agent_raises() -> None:
+    comm = AgentCommunicationBus(EventBus())
+    orchestrator, *_ = _make_orchestrator(communication_bus=comm)
+
+    with pytest.raises(AgentNotFoundError):
+        await orchestrator.send_command("missing", {"do": "x"})
+
+
+async def test_send_command_delivers_via_communication_bus_only() -> None:
+    event_bus = EventBus()
+    comm = AgentCommunicationBus(event_bus)
+    orchestrator, *_ = _make_orchestrator(communication_bus=comm)
+    await orchestrator.register_agent("planner", "1.0.0", ("agent.plan@v1",), _FakeAgent())
+    await orchestrator.start_agent("planner")
+
+    received: list[AgentMessage] = []
+
+    async def handler(message: AgentMessage) -> None:
+        received.append(message)
+
+    comm.subscribe("planner", handler)
+
+    sent = await orchestrator.send_command("planner", {"do": "replan"})
+
+    assert sent.message_type is AgentMessageType.COMMAND
+    assert sent.receiver_id == "planner"
+    assert sent.sender_id == "orchestrator"
+    assert len(received) == 1
+    assert received[0].payload == {"do": "replan"}
+
+
+async def test_send_command_uses_provided_correlation_id() -> None:
+    comm = AgentCommunicationBus(EventBus())
+    orchestrator, *_ = _make_orchestrator(communication_bus=comm)
+    await orchestrator.register_agent("planner", "1.0.0", ("agent.plan@v1",), _FakeAgent())
+    await orchestrator.start_agent("planner")
+
+    sent = await orchestrator.send_command("planner", {}, correlation_id="corr-xyz")
+
+    assert sent.correlation_id == "corr-xyz"
+    assert [m.id for m in comm.correlated("corr-xyz")] == [sent.id]
