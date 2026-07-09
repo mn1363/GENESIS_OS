@@ -1,12 +1,11 @@
 """Hybrid Memory — Short-Term, Vector (Qdrant abstraction), Knowledge Graph.
 
 Phase 3: interfaces + in-memory reference implementations. Phase 6
-Milestone 6 added a production Knowledge Graph backend
-(`src.storage.knowledge_graph.SQLAlchemyKnowledgeGraph`); Milestone 7
-(`di_wire.py`) wires it into `MemoryService` via Dependency Injection.
-Production `ShortTermMemory`/`VectorMemory` backends
-(`src.storage.redis_client`/`src.storage.vector_store`) exist too but are
-not yet wired into `MemoryService` — a separate integration.
+Milestones 6-8 added production backends
+(`src.storage.knowledge_graph.SQLAlchemyKnowledgeGraph`,
+`src.storage.redis_client.RedisShortTermMemory`,
+`src.storage.vector_store.QdrantVectorMemory`) and wired all three into
+`MemoryService` via Dependency Injection (`di_wire.py`).
 """
 
 from src.services.memory.di_wire import MEMORY_SERVICE, wire_memory_service
