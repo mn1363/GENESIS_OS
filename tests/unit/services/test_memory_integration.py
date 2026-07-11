@@ -30,12 +30,13 @@ of `MemoryService`'s own behavior.
 
 from __future__ import annotations
 
+import pytest
 from fakeredis.aioredis import FakeRedis
 from qdrant_client import AsyncQdrantClient
 from src.config.settings import Settings
 from src.core.di import DIContainer
 from src.core.kernel import Kernel
-from src.core.lifecycle import Service
+from src.core.lifecycle import Service, ServiceLifecycleError
 from src.services.memory.di_wire import wire_memory_service
 from src.services.memory.service import MemoryService
 from src.storage.database import DatabaseSessionManager
@@ -93,6 +94,49 @@ async def test_memory_service_registers_and_boots_under_a_real_kernel() -> None:
         )
     finally:
         await kernel.shutdown()
+
+
+async def test_kernel_boot_reports_an_unhealthy_memory_service_as_a_boot_failure() -> None:
+    """Phase 6 Milestone 10: MemoryService.health_check() now genuinely
+    reflects backend reachability (src/services/memory/service.py) rather
+    than the previous unconditional `return True`. This proves the fix
+    changes Kernel's real boot() outcome for the first time: no
+    previously-registered Service in this codebase had ever returned
+    `False` from `health_check()` during `boot()` before, so this path was
+    never actually exercised end-to-end until now.
+
+    Discovered finding, not something this milestone can fix (`src/core/`
+    is sealed): `Kernel.boot()` (`src/core/kernel.py`) reacts to
+    `health_check() -> False` by calling
+    `self.services.set_state(name, ServiceState.DEGRADED)` while the
+    service is still in `STARTING` — but `src/core/lifecycle.py`'s own
+    state machine only allows `STARTING -> HEALTHY | FAILED`; `DEGRADED`
+    is reachable only from `HEALTHY`. So `boot()` raises
+    `ServiceLifecycleError` here, not the `KernelBootError` its own
+    mandatory-service handling further down the same method appears to
+    intend. This reproduces that surprising-but-real behavior rather than
+    asserting the presumably-intended one, and documents it as a
+    pre-existing core defect this validation work surfaced.
+    """
+
+    class _BrokenShortTerm:
+        async def get(self, session_id: str, key: str) -> None:
+            raise ConnectionError("simulated Redis outage")
+
+        async def set(self, session_id: str, key: str, value: object) -> None:
+            raise ConnectionError("simulated Redis outage")
+
+        async def clear(self, session_id: str) -> None:
+            raise ConnectionError("simulated Redis outage")
+
+    kernel = Kernel()
+    memory_service = MemoryService(short_term=_BrokenShortTerm())
+    kernel.register_service(
+        "memory", memory_service, capability_handlers=memory_service.capability_handlers()
+    )
+
+    with pytest.raises(ServiceLifecycleError, match="starting -> degraded"):
+        await kernel.boot()
 
 
 async def test_kernel_dispatch_drives_short_term_memory_through_all_three_backends() -> None:
@@ -178,7 +222,20 @@ async def test_every_declared_capability_handler_is_dispatchable() -> None:
 async def test_wire_memory_service_composes_with_the_kernels_own_di_container() -> None:
     """The full production chain: Kernel -> kernel.di -> wire_memory_service
     -> MemoryService -> register_service -> dispatch, using the Kernel's
-    own DIContainer rather than a bare standalone one."""
+    own DIContainer rather than a bare standalone one.
+
+    Uses `Kernel.dispatch()` directly rather than `kernel.boot()`:
+    `wire_memory_service()` builds `short_term`/`vector` from real network
+    addresses (`Settings.redis_url`/`qdrant_host`/`qdrant_port`), and no
+    live Redis/Qdrant server is available in this environment — Milestone
+    10's now-genuine `MemoryService.health_check()` would correctly report
+    that as unhealthy, which `kernel.boot()` cannot currently handle
+    without raising (see `test_kernel_boot_reports_an_unhealthy_memory_
+    service_as_a_boot_failure`'s docstring for the pre-existing `src/core/`
+    defect this surfaced). `dispatch()` itself has no such gate — it
+    doesn't require `boot()` to have run — so it's the right tool to
+    validate DI composition here, independent of that unrelated defect.
+    """
     kernel = Kernel(settings=_in_memory_settings())
     memory_service = wire_memory_service(kernel.di, settings=_in_memory_settings())
     await init_storage_schema(kernel.di)
@@ -186,14 +243,12 @@ async def test_wire_memory_service_composes_with_the_kernels_own_di_container() 
     kernel.register_service(
         "memory", memory_service, capability_handlers=memory_service.capability_handlers()
     )
-    await kernel.boot()
 
     try:
         await kernel.dispatch("memory.graph.add_node@v1", {"id": "solo"})
         neighbors = await kernel.dispatch("memory.graph.neighbors@v1", {"node_id": "solo"})
         assert neighbors == []
     finally:
-        await kernel.shutdown()
         await dispose_storage(kernel.di)
 
 
@@ -201,19 +256,20 @@ async def test_dispose_storage_cleans_up_after_full_kernel_lifecycle() -> None:
     """Resources built for a Kernel-registered MemoryService via
     wire_memory_service() must dispose cleanly after Kernel shutdown --
     disposing the shared clients wire_storage() built, since MemoryService
-    holds no connections of its own."""
+    holds no connections of its own.
+
+    Drives the `Service` lifecycle directly (`start()`/`stop()`) rather
+    than through `kernel.boot()`/`shutdown()`, for the same unreachable-
+    real-network-backend reason as the test above — `boot()`'s health gate
+    is orthogonal to what this test validates (storage disposal).
+    """
     container = DIContainer()
     settings = _in_memory_settings()
     memory_service = wire_memory_service(container, settings=settings)
     await init_storage_schema(container)
 
-    kernel = Kernel(settings=settings)
-    kernel.register_service(
-        "memory", memory_service, capability_handlers=memory_service.capability_handlers()
-    )
-    await kernel.boot()
-    await kernel.shutdown()
-
+    await memory_service.start()
+    await memory_service.stop()
     await dispose_storage(container)  # must not raise
 
     assert container.get_built(DB_SESSION_MANAGER) is not None

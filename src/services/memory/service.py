@@ -45,6 +45,32 @@ class MemoryService:
         pass
 
     async def health_check(self) -> bool:
+        """Genuinely probes `short_term` and `graph` through their own
+        Protocol methods — a session/key and a `node_id` that don't
+        exist, which both return an empty/`None` result if the backend is
+        reachable and raise if it isn't. A Redis or database outage now
+        correctly surfaces as an unhealthy `Service` to the Kernel's
+        `boot()` sequence (`KERNEL_ARCHITECTURE_PROPOSAL.md` §6) instead
+        of the previous unconditional `return True`.
+
+        Deliberately does **not** actively probe `vector`: every
+        `VectorMemory` method that could serve as a probe has a real
+        side-effect risk. `upsert`/`search` both lazily create the
+        backing collection sized to whatever vector they're first called
+        with (`QdrantVectorMemory._ensure_collection`) — probing with
+        either would permanently lock in a throwaway dimension before any
+        real data exists, corrupting real usage later. `delete` avoids
+        that, but raises for a collection that doesn't exist yet, which
+        would make a freshly wired, perfectly healthy vector store report
+        as unhealthy on first boot. There is no way to safely probe
+        reachability through this Protocol alone, so `vector` is left
+        unchecked here rather than risk either failure mode.
+        """
+        try:
+            await self.short_term.get("__health_check__", "__health_check__")
+            await self.graph.neighbors("__health_check__")
+        except Exception:  # noqa: BLE001 - any backend failure means "unhealthy", not a crash
+            return False
         return True
 
     async def on_failure(self, error: BaseException) -> None:

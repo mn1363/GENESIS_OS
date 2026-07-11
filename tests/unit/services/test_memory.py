@@ -73,3 +73,79 @@ async def test_memory_service_capability_handlers_roundtrip() -> None:
     await handlers["memory.graph.add_node@v1"]({"id": "n2"})
     neighbors = await handlers["memory.graph.neighbors@v1"]({"node_id": "n1"})
     assert neighbors[0]["id"] == "n2"
+
+
+# ---- health_check() production validation (Phase 6 Milestone 10) --------------------
+
+
+async def test_health_check_is_true_with_default_in_memory_backends() -> None:
+    assert await MemoryService().health_check() is True
+
+
+async def test_health_check_does_not_mutate_short_term_or_graph_state() -> None:
+    """The probe keys/node_id must not leak into real backend state."""
+    service = MemoryService()
+    await service.health_check()
+
+    assert await service.short_term.get("__health_check__", "__health_check__") is None
+    assert await service.graph.neighbors("__health_check__") == []
+
+
+async def test_health_check_returns_false_when_short_term_backend_fails() -> None:
+    class _BrokenShortTerm:
+        async def get(self, session_id: str, key: str) -> None:
+            raise ConnectionError("simulated Redis outage")
+
+        async def set(self, session_id: str, key: str, value: object) -> None:
+            raise ConnectionError("simulated Redis outage")
+
+        async def clear(self, session_id: str) -> None:
+            raise ConnectionError("simulated Redis outage")
+
+    service = MemoryService(short_term=_BrokenShortTerm())
+    assert await service.health_check() is False
+
+
+async def test_health_check_returns_false_when_graph_backend_fails() -> None:
+    class _BrokenGraph:
+        async def add_node(
+            self, id: str, labels: tuple[str, ...] = (), properties: dict[str, object] | None = None
+        ) -> object:
+            raise ConnectionError("simulated database outage")
+
+        async def add_edge(
+            self,
+            source: str,
+            target: str,
+            relation: str,
+            properties: dict[str, object] | None = None,
+        ) -> object:
+            raise ConnectionError("simulated database outage")
+
+        async def neighbors(self, node_id: str, relation: str | None = None) -> list[object]:
+            raise ConnectionError("simulated database outage")
+
+    service = MemoryService(graph=_BrokenGraph())  # type: ignore[arg-type]
+    assert await service.health_check() is False
+
+
+async def test_health_check_does_not_touch_vector_backend_at_all() -> None:
+    """health_check() must never call vector's upsert/search/delete --
+    doing so would risk creating a wrong-dimension Qdrant collection or
+    raising for a not-yet-created one. Confirmed here by a vector double
+    that fails any call."""
+
+    class _ExplodingVector:
+        async def upsert(
+            self, id: str, vector: list[float], metadata: dict[str, object] | None = None
+        ) -> None:
+            raise AssertionError("health_check() must never call vector.upsert")
+
+        async def search(self, query_vector: list[float], top_k: int = 5) -> list[object]:
+            raise AssertionError("health_check() must never call vector.search")
+
+        async def delete(self, id: str) -> None:
+            raise AssertionError("health_check() must never call vector.delete")
+
+    service = MemoryService(vector=_ExplodingVector())  # type: ignore[arg-type]
+    assert await service.health_check() is True
